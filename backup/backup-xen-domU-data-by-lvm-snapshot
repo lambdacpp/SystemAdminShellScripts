@@ -16,6 +16,10 @@ backup_dir=`echo $3 | sed 's|^/||' | sed 's|/$||'`
 nfs_server=$4 
 nfs_export_dir=$5
 
+mysql_server=$6
+mysql_user=$7
+mysql_passwd=$8
+
 timestamp=`date +%s%N`
 snapshot_mount_dir="/tmp/snapshot-${timestamp}"
 nfs_mount_dir="/tmp/nfs-${timestamp}"
@@ -29,12 +33,17 @@ snapshot_size_functor=0.1
 
 Usage() {
     echo "Usage: "
-    echo "  $0 vgname lvname backup_directory nfs_server nfs_export_directory"
+    echo "  $0 vgname lvname backup_directory nfs_server nfs_export_directory [mysql_server mysql_user mysql_passwd]"
     echo "    vgname: The backup VG(Volumn Group) name"
     echo "    lvname: The backup LV(Logic Volumn) name"
     echo "    backup_directory: Backup directory on LV"
     echo "    nfs_server: NFS server address"
     echo "    nfs_export_directory: Backup dest directory"
+    echo "    if backup mysql data, the following parameter would be assgin:"
+    echo "      mysql_server: MySQL server address "
+    echo "      mysql_user"
+    echo "      mysql_password"
+
 }
 
 LogInfo() {
@@ -118,13 +127,37 @@ UmountNFS() {
     fi 
 }
 
+FlushMySQL() {
+    if echo " FLUSH TABLES WITH READ LOCK;" | mysql -h $mysql_server -u $mysql_user -p$mysql_passwd
+    then
+        LogInfo "INFO" "Flush tables."
+    else
+        Loginfo "ERROR" "Flush tables fall."
+        exit 1
+    fi
+}
+
+UnlockMySQL() {
+    if echo "UNLOCK TABLES;" | mysql -h $mysql_server -u $mysql_user -p$mysql_passwd
+    then
+        LogInfo "INFO" "unlock tables."
+    else
+        LogInfo "ERROR" "Can't unlock tables"
+    fi 
+}
+
 ###################################################################
 ## Main process 
 ###################################################################
 
 ## Check parameter number  
-if [ $# -ne 5 ] 
+if [ $# -eq 5 ] 
 then
+    mysql_backup='N' 
+elif [ $# -eq 8 ]
+then
+    mysql_backup='Y'
+else
     Usage
     exit 1
 fi
@@ -146,7 +179,18 @@ then
 fi
 
 
+if [ $mysql_backup='Y'] 
+then
+    FlushMySQL
+fi 
+
 CreateSnapshot
+
+if [ $mysql_backup='Y'] 
+then
+    UnlockMySQL
+fi 
+
 MountSnapshot
 
 if [ ! -d $backup_abs_dir ]
