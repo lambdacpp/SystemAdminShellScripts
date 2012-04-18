@@ -6,11 +6,12 @@
 vg_name=$1
 lv_name=$2
 
+
 lv_dev_name="/dev/${vg_name}/${lv_name}"
 lv_snapshot_name="${lv_name}-backup-snapshot"
 lv_snapshot_dev_name="/dev/${vg_name}/${lv_snapshot_name}"
  
-backup_dir=`echo $3 | sed 's|^/||' | sed 's|/$||'`
+backup_dir=`echo $3 | sed -e 's|^/||' -e  's|/$||'`
  
 
 nfs_server=$4 
@@ -24,9 +25,14 @@ timestamp=`date +%s%N`
 snapshot_mount_dir="/tmp/snapshot-${timestamp}"
 nfs_mount_dir="/tmp/nfs-${timestamp}"
 
-backup_abs_dir="${snapshot_mount_dir}/${3}" 
+backup_src_dir="${snapshot_mount_dir}/${backup_dir}" 
 
-tar_file_name="${lv_name}-`echo ${backup_dir} | sed 's|/|-|g'`-`date +%Y%m%d%H%M`.tar.gz"
+tar_file_name="`date +%Y%m%d%H%M`.tar.gz"
+
+# backupfile save to backup_task_name directory 
+backup_task_name="${lv_name}-`echo ${backup_dir} | sed 's|/|-|g'`-`date +%Y%W`"
+
+backup_dest_dir="${nfs_mount_dir}/${backup_task_name}"
 
 snapshot_size_functor=0.1
 
@@ -127,16 +133,6 @@ UmountNFS() {
     fi 
 }
 
-FlushMySQL() {
-    if echo " FLUSH TABLES WITH READ LOCK;" | mysql -h $mysql_server -u $mysql_user -p$mysql_passwd
-    then
-        LogInfo "INFO" "Flush tables."
-    else
-        Loginfo "ERROR" "Flush tables fall."
-        exit 1
-    fi
-}
-
 UnlockMySQL() {
     if echo "UNLOCK TABLES;" | mysql -h $mysql_server -u $mysql_user -p$mysql_passwd
     then
@@ -146,18 +142,25 @@ UnlockMySQL() {
     fi 
 }
 
+FlushMySQL() {
+    if echo " FLUSH TABLES WITH READ LOCK;" | mysql -h $mysql_server -u $mysql_user -p$mysql_passwd
+    then
+        LogInfo "INFO" "Flush tables."
+    else
+        Loginfo "ERROR" "Flush tables fall."
+        UnlockMySQL
+        exit 1
+    fi
+}
+
+
 ###################################################################
 ## Main process 
 ###################################################################
 
 ## Check parameter number  
-if [ $# -eq 5 ] 
+if [ $# -ne 5 -a $# -ne 8 ] 
 then
-    mysql_backup='N' 
-elif [ $# -eq 8 ]
-then
-    mysql_backup='Y'
-else
     Usage
     exit 1
 fi
@@ -178,24 +181,25 @@ then
     exit 1
 fi
 
-
-if [ $mysql_backup='Y'] 
+## 8 parameter,mysql backup
+if [ $# -eq 8 ] 
 then
     FlushMySQL
 fi 
 
 CreateSnapshot
 
-if [ $mysql_backup='Y'] 
+## 8 parameter,mysql backup
+if [ $# -eq 8 ] 
 then
     UnlockMySQL
 fi 
 
 MountSnapshot
 
-if [ ! -d $backup_abs_dir ]
+if [ ! -d $backup_src_dir ]
 then
-    LogInfo "ERROR" "Backup directory $backup_abs_dir is not exists."
+    LogInfo "ERROR" "Backup directory $backup_src_dir is not exists."
     UmountSnapshot
     DeleteSnapshot
     exit 1
@@ -203,9 +207,23 @@ fi
 
 MountNFS
 
+#Check Dest dir.if it's not exist,create it and tar will be full backup.
+if [ ! -d $backup_dest_dir ]
+then
+    if mkdir $backup_dest_dir
+    then
+        LogInfo "INFO" "Backup directory (${backup_dest_dir}) is be created."
+    else
+        LogInfo "ERROR" "Can't create backup dest dir:${backup_dest_dir}"
+        UmountNFS
+        UmountSnapshot
+        DeleteSnapshot
+        exit 1
+    fi 
+fi 
 LogInfo "INFO" "Start backup to ${tar_file_name}"
 
-tar -czvf  ${nfs_mount_dir}/${tar_file_name}  ${backup_abs_dir}
+tar -g ${backup_dest_dir}/tar_hash -czvf  ${backup_dest_dir}/${tar_file_name}  ${backup_src_dir}
 
 LogInfo "INFO" "${tar_file_name} created"
 
