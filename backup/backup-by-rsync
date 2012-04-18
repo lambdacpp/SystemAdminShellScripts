@@ -1,0 +1,38 @@
+#!/bin/sh
+
+#
+# Backup iredmail files by rsync 
+#
+RSYNC="/usr/bin/rsync"
+BACK_DAY=3
+
+SOURCE_DIRS="/mail-data /usr/share/apache2 /etc"
+BACKUP_DIR="/nicfiles/mail/"
+
+for source_dir in $SOURCE_DIRS;do
+    task=`echo $source_dir | sed -e 's|^/||' -e 's|.*/||g'`
+    dest_dir="$BACKUP_DIR$task"
+    echo $dest_dir
+    for (( i=$BACK_DAY; i>1; i--));do
+        check_version=`echo "$i-1" | bc`
+        check_dir="$dest_dir.$check_version"
+        mv_dir="$dest_dir.$i"
+        if [ -e $check_dir ];then
+            echo "mv" $check_dir $mv_dir
+            mv $check_dir $mv_dir
+        fi
+    done
+
+    if [ -e $dest_dir ];then
+        mv $dest_dir $dest_dir.1
+    fi
+
+    if [ -e $dest_dir.$BACK_DAY ];then
+        mv $dest_dir.$BACK_DAY $dest_dir
+    else
+        mkdir $dest_dir
+    fi
+    
+    LOG_FILE="/var/log/mail-$task-back.log"
+    $RSYNC -azv --log-file=$LOG_FILE  root@mail.cdu.edu.cn:$source_dir $BACKUP_DIR
+done

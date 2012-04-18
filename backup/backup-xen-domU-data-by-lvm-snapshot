@@ -1,0 +1,173 @@
+#!/bin/sh
+#
+# Backup data to NFS storage by LVM snapshot on Xen Dom 0.
+#
+
+vg_name=$1
+lv_name=$2
+
+lv_dev_name="/dev/${vg_name}/${lv_name}"
+lv_snapshot_name="${lv_name}-backup-snapshot"
+lv_snapshot_dev_name="/dev/${vg_name}/${lv_snapshot_name}"
+ 
+backup_dir=`echo $3 | sed 's|^/||' | sed 's|/$||'`
+ 
+
+nfs_server=$4 
+nfs_export_dir=$5
+
+timestamp=`date +%s%N`
+snapshot_mount_dir="/tmp/snapshot-${timestamp}"
+nfs_mount_dir="/tmp/nfs-${timestamp}"
+
+backup_abs_dir="${snapshot_mount_dir}/${3}" 
+
+tar_file_name="${lv_name}-`echo ${backup_dir} | sed 's|/|-|g'`-`date +%Y%m%d%H%M`.tar.gz"
+
+snapshot_size_functor=0.1
+
+
+Usage() {
+    echo "Usage: "
+    echo "  $0 vgname lvname backup_directory nfs_server nfs_export_directory"
+    echo "    vgname: The backup VG(Volumn Group) name"
+    echo "    lvname: The backup LV(Logic Volumn) name"
+    echo "    backup_directory: Backup directory on LV"
+    echo "    nfs_server: NFS server address"
+    echo "    nfs_export_directory: Backup dest directory"
+}
+
+LogInfo() {
+    logfile="/var/log/lvmbackup.log"
+    echo "[`date +"%Y-%m-%d %H:%M:%S"`] $1:$2" >> $logfile
+}
+
+
+CreateSnapshot() {
+    
+    # snapshot size = lv size * functor 
+    # BUT snapshot size must be smaller than vg free space
+    # SO  if vg_free_space >  snapshot_size then  snapshot_size=vg_free_space
+    #
+    # Run lvdisplay and vgs using same unit Mbyte
+    lv_size=`lvdisplay --unit m $lv_dev_name | grep "LV Size" | awk '{print $3}'`
+    snapshot_size=`echo "${snapshot_size_functor}*${lv_size}" | bc | sed 's/\..*$//'`
+
+    vg_free_space=`vgs --unit m | grep $vg_name | awk '{print $7}' | sed 's/\..*$//'`
+    if [ $snapshot_size -gt $vg_free_space  ] ; then
+        echo "WARING:VG free space is less than snapshot required."
+        snapshot_size=$vg_free_space
+    fi
+    if lvcreate -L ${snapshot_size}m -s  -n $lv_snapshot_name $lv_dev_name
+    then
+        LogInfo "INFO" "Snapshot $lv_snapshot_dev_name is be created."
+    else
+        LogInfo "ERROR" "Create Snapshot $lv_snapshot_dev_name Fall."
+        exit 1
+    fi 
+}
+
+DeleteSnapshot() {
+    if lvremove -f $lv_snapshot_dev_name
+    then
+        LogInfo "INFO" "Snapshot $lv_snapshot_dev_name is be removed."
+    else
+        LogInfo "ERROR" "Can't remove snapshot."
+    fi 
+}
+
+MountSnapshot() {
+    mkdir $snapshot_mount_dir
+    if mount $lv_snapshot_dev_name $snapshot_mount_dir
+    then
+        LogInfo "INFO" "Snapshot $lv_snapshot_dev_name is mounted on $snapshot_mount_dir."
+    else
+        LogInfo "ERROR" "Can't mount snapshot $lv_snapshot_dev_name on $snapshot_mount_dir."
+        exit 1
+    fi
+}
+
+UmountSnapshot() {
+    if umount $snapshot_mount_dir
+    then
+        LogInfo "INFO" "Umounted $snapshot_mount_dir."
+        rm -r $snapshot_mount_dir
+    else
+        LogInfo "ERROR" "Can't umount $snapshot_mount_dir."
+    fi 
+}
+
+MountNFS() {
+    mkdir $nfs_mount_dir
+    if mount -t nfs ${nfs_server}:${nfs_export_dir} $nfs_mount_dir
+    then
+        LogInfo "INFO" "Mounted nfs ${nfs_server}:${nfs_export_dir} on $nfs_mount_dir "
+    else
+        LogInfo "ERROR" "Can't mount nfs ${nfs_server}:${nfs_export_dir} on $nfs_mount_dir."
+        exit 1
+    fi 
+}
+
+UmountNFS() {
+    if umount $nfs_mount_dir
+    then 
+        LogInfo "INFO" "Umount ufs $nfs_mount_dir."
+        rm -r $nfs_mount_dir
+    else
+        LogInfo "ERROR" "Can't umount ufs $nfs_mount_dir."
+    fi 
+}
+
+###################################################################
+## Main process 
+###################################################################
+
+## Check parameter number  
+if [ $# -ne 5 ] 
+then
+    Usage
+    exit 1
+fi
+
+LogInfo "INFO" "Backup starting." 
+
+## Check Snapshot exist
+if lvs | grep $vg_name | grep $lv_snapshot_name > /dev/null
+then
+    LogInfo "ERROR" "Snapshot $lv_snapshot_dev_name is exists."
+    exit 1
+fi 
+
+## Check LV exist
+if ! lvs | grep $vg_name | grep $lv_name > /dev/null
+then
+    LogInfo "ERROR" "lv $lv_dev_name is not exists."
+    exit 1
+fi
+
+
+CreateSnapshot
+MountSnapshot
+
+if [ ! -d $backup_abs_dir ]
+then
+    LogInfo "ERROR" "Backup directory $backup_abs_dir is not exists."
+    UmountSnapshot
+    DeleteSnapshot
+    exit 1
+fi 
+
+MountNFS
+
+LogInfo "INFO" "Start backup to ${tar_file_name}"
+
+tar -czvf  ${nfs_mount_dir}/${tar_file_name}  ${backup_abs_dir}
+
+LogInfo "INFO" "${tar_file_name} created"
+
+
+UmountNFS
+UmountSnapshot
+DeleteSnapshot
+LogInfo "INFO" "Backup over."
+
