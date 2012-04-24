@@ -64,16 +64,16 @@ CreateSnapshot() {
     # BUT snapshot size must be smaller than vg free space
     # SO  if vg_free_space >  snapshot_size then  snapshot_size=vg_free_space
     #
-    # Run lvdisplay and vgs using same unit Mbyte
-    lv_size=`lvdisplay --unit m $lv_dev_name | grep "LV Size" | awk '{print $3}'`
+    # Run ${LVDISPLAY} and vgs using same unit Mbyte
+    lv_size=`/sbin/lvdisplay --unit m $lv_dev_name | grep "LV Size" | awk '{print $3}'`
     snapshot_size=`echo "${snapshot_size_functor}*${lv_size}" | bc | sed 's/\..*$//'`
 
-    vg_free_space=`vgs --unit m | grep $vg_name | awk '{print $7}' | sed 's/\..*$//'`
+    vg_free_space=`/sbin/vgs --unit m | grep $vg_name | awk '{print $7}' | sed 's/\..*$//'`
     if [ $snapshot_size -gt $vg_free_space  ] ; then
         echo "WARING:VG free space is less than snapshot required."
         snapshot_size=$vg_free_space
     fi
-    if lvcreate -L ${snapshot_size}m -s  -n $lv_snapshot_name $lv_dev_name
+    if /sbin/lvcreate -L ${snapshot_size}m -s  -n $lv_snapshot_name $lv_dev_name
     then
         LogInfo "INFO" "Snapshot $lv_snapshot_dev_name is be created."
     else
@@ -83,7 +83,7 @@ CreateSnapshot() {
 }
 
 DeleteSnapshot() {
-    if lvremove -f $lv_snapshot_dev_name
+    if /sbin/lvremove -f $lv_snapshot_dev_name
     then
         LogInfo "INFO" "Snapshot $lv_snapshot_dev_name is be removed."
     else
@@ -168,14 +168,14 @@ fi
 LogInfo "INFO" "Backup starting." 
 
 ## Check Snapshot exist
-if lvs | grep $vg_name | grep $lv_snapshot_name > /dev/null
+if /sbin/lvs | grep $vg_name | grep $lv_snapshot_name > /dev/null
 then
     LogInfo "ERROR" "Snapshot $lv_snapshot_dev_name is exists."
     exit 1
 fi 
 
 ## Check LV exist
-if ! lvs | grep $vg_name | grep $lv_name > /dev/null
+if ! /sbin/lvs | grep $vg_name | grep $lv_name > /dev/null
 then
     LogInfo "ERROR" "lv $lv_dev_name is not exists."
     exit 1
