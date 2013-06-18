@@ -1,0 +1,69 @@
+#!/bin/sh
+
+RSYNC="/usr/bin/rsync"
+TAR="/bin/tar"
+
+
+
+LogInfo() {
+    logfile="/var/log/rbtc.log"
+    echo "[`date +"%Y-%m-%d %H:%M:%S"`] $1:$2" >> $logfile
+}
+
+Sync() {
+  #Usage Sync user server source dest     
+
+  $RSYNC -az  root@$server:$src_dir $dest_dir
+}
+
+
+
+if [ $# -ne 3 ] 
+then
+    echo "Usage: $0 Server BackupDirectoryOnServer StorageDestination "
+    exit 1
+fi
+
+server=$1
+backup_dir_on_src_server=`echo $2 | sed 's|/$||'`
+storage_destination=`echo $3 | sed 's|/$||'`
+
+if [ ! -d $storage_destination ]
+then
+    LogInfo "ERROR" "Backup Storage directory $backup_src_dir is not exists."
+    exit 1
+fi
+
+
+#RSYNC
+rsync_dest="${storage_destination}/rsync"
+if [ -d ${rsync_dest} ]
+then
+    tar_file_name="`date +%Y%m%d%H%M`.tar.gz"
+    tar_backup_dest="${storage_destination}/`date +%Y%W`"
+    echo "tar -g ${tar_backup_dest}/tar_hash -czvf  ${tar_backup_dest}/${tar_file_name}  ${rsync_dest}"
+
+    if [ ! -d $tar_backup_dest ]
+    then
+        mkdir $tar_backup_dest
+    fi 
+
+    if ! tar -g ${tar_backup_dest}/tar_hash -czvf  ${tar_backup_dest}/${tar_file_name}  ${rsync_dest}
+    then    
+        LogInfo "ERROR" "Run 'tar -g ${tar_backup_dest}/tar_hash -czvf  ${tar_backup_dest}/${tar_file_name}  ${rsync_dest}' fail."
+        exit 1
+    fi
+fi 
+
+if ! $RSYNC -azv root@${server}:${backup_dir_on_src_server} ${rsync_dest}
+then
+    LogInfo "ERROR" "Run '$RSYNC -az root@$server:$backup_dir_on_src_server $rsync_dest' fail."
+    exit 1
+fi
+
+exit 0
+
+
+
+
+
