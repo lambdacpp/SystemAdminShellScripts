@@ -17,16 +17,23 @@ Sync() {
 }
 
 
-
-if [ $# -ne 3 ] 
+if [ $# -ne 3 -a $# -ne 4 ] 
 then
-    echo "Usage: $0 Server BackupDirectoryOnServer StorageDestination "
+    echo "Usage: $0 Server BackupDirectoryOnServer StorageDestination [AutoCleanBeforeDays]"
     exit 1
 fi
 
 server=$1
 backup_dir_on_src_server=`echo $2 | sed 's|/$||'`
 storage_destination=`echo $3 | sed 's|/$||'`
+
+if [ $# -eq 4 ] 
+then
+  clean_days=$4
+else 
+  clean_days=30
+fi
+
 
 if [ ! -d $storage_destination ]
 then
@@ -47,6 +54,7 @@ then
     then
         mkdir $tar_backup_dest
     fi 
+    /usr/bin/find $tar_backup_dest -maxdepth 1 -ctime +${clean_days} -type d -exec rm -rf {} \;
 
     if ! tar -g ${tar_backup_dest}/tar_hash -czvf  ${tar_backup_dest}/${tar_file_name}  ${rsync_dest}
     then    
