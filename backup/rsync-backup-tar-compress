@@ -47,14 +47,14 @@ rsync_dest="${storage_destination}/rsync"
 if [ -d ${rsync_dest} ]
 then
     tar_file_name="`date +%Y%m%d%H%M`.tar.gz"
-    tar_backup_dest="${storage_destination}/`date +%Y%W`"
+    tar_backup_dest="${storage_destination}/tar/`date +%Y%W`"
     echo "tar -g ${tar_backup_dest}/tar_hash -czvf  ${tar_backup_dest}/${tar_file_name}  ${rsync_dest}"
 
     if [ ! -d $tar_backup_dest ]
     then
-        mkdir $tar_backup_dest
+        mkdir -p $tar_backup_dest
     fi 
-    /usr/bin/find $tar_backup_dest -maxdepth 1 -ctime +${clean_days} -type d -exec rm -rf {} \;
+    /usr/bin/find ${storage_destination}/tar/ -maxdepth 1 -ctime +${clean_days} -type d -exec rm -rf {} \;
 
     if ! tar -g ${tar_backup_dest}/tar_hash -czvf  ${tar_backup_dest}/${tar_file_name}  ${rsync_dest}
     then    
